@@ -41,294 +41,42 @@
 #       uses: hashicorp/setup-terraform@v1
 #       with:
 #         cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-
 name: 'Terraform'
-
 on:
   push:
     branches: [ "main" ]
   pull_request:
-
 permissions:
   contents: read
-
 jobs:
   terraform:
     name: 'Terraform'
     runs-on: ubuntu-latest
     environment: production
-
     # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
     defaults:
       run:
         shell: bash
-
     steps:
     # Checkout the repository to the GitHub Actions runner
     - name: Checkout
       uses: actions/checkout@v4
-
     # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v1
       with:
         cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
       run: terraform init
-
     # Checks that all Terraform configuration files adhere to a canonical format
     - name: Terraform Format
       run: terraform fmt -check
-
     # Generates an execution plan for Terraform
     - name: Terraform Plan
       run: terraform plan -input=false
-
       # On push to "main", build or change infrastructure according to Terraform configuration files
       # Note: It is recommended to set up a required "strict" status check in your repository for "Terraform Cloud". See the documentation on "strict" required status checks for more information: https://help.github.com/en/github/administering-a-repository/types-of-required-status-checks
     - name: Terraform Apply
-      if: github.ref == 'refs/heads/"main"' && github.event_name == 'push'
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: terraform apply -auto-approve -input=false
-import Image from "next/image";
-import Head from "next/head";
-import jazzuHouse from "../public/jazzu-house.png";
-
-export default function Home() {
-  return (
-    <>
-      <Head>
-        <title>The House of Jazzu</title>
-      </Head>
-      <div className="cinematic-bg">
-        <main className="content">
-          <h1 className="title">Welcome to the House of Jazzu</h1>
-          <p className="subtitle">A Universe of Music, Art & Innovation</p>
-          <div className="image-frame">
-            <Image
-              src={jazzuHouse}
-              alt="House of Jazzu"
-              priority
-              className="house-img"
-            />
-          </div>
-          <button className="cta">Enter the House</button>
-        </main>
-      </div>
-    </>
-  );
-}body {
-  margin: 0;
-  font-family: 'Poppins', sans-serif;
-  background: radial-gradient(circle at bottom, #0f0f0f, #1a1f1a 40%, #101010 90%);
-  color: #fff;
-  overflow-x: hidden;
-}
-
-.cinematic-bg {
-  position: relative;
-  height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  overflow: hidden;
-}
-
-/* Animated abstract shapes */
-.cinematic-bg::before, .cinematic-bg::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(0,255,128,0.1);
-  animation: float 20s infinite ease-in-out alternate;
-}
-
-.cinematic-bg::before {
-  width: 400px; height: 400px;
-  top: -100px; left: -150px;
-}
-.cinematic-bg::after {
-  width: 300px; height: 300px;
-  bottom: -100px; right: -100px;
-}
-
-@keyframes float {
-  0% { transform: translateY(0px) rotate(0deg); }
-  100% { transform: translateY(-50px) rotate(20deg); }
-}
-
-.title {
-  font-size: 3.5rem;
-  background: linear-gradient(45deg, #d4af37, #00ff80);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  text-shadow: 0 0 10px rgba(0,255,128,0.5);
-}
-
-.subtitle {
-  font-size: 1.5rem;
-  margin: 1rem 0 2rem 0;
-  font-style: italic;
-  color: #ccc;
-}
-
-.image-frame {
-  margin: 2rem auto;
-  max-width: 600px;
-  border: 6px solid #d4af37;
-  border-radius: 20px;
-  box-shadow: 0 0 50px rgba(0,255,128,0.6), 0 0 80px rgba(212,175,55,0.6);
-  overflow: hidden;
-  background: rgba(255,255,255,0.05);
-  backdrop-filter: blur(15px);
-}
-
-.house-img {
-  transform: scale(1.05);
-  transition: transform 8s ease-in-out;
-}
-.house-img:hover {
-  transform: scale(1.1);
-}
-
-.cta {
-  padding: 1rem 2rem;
-  font-size: 1.2rem;
-  background: #0f0f0f;
-  border: 3px solid #d4af37;
-  color: #d4af37;
-  cursor: pointer;
-  transition: all 0.3s ease-in-out;
-  margin-top: 2rem;
-  border-radius: 12px;
-  box-shadow: 0 0 15px #00ff80;
-}
-
-.cta:hover {
-  background: #d4af37;
-  color: #0f0f0f;
-  transform: scale(1.05);
-  box-shadow: 0 0 30px #00ff80, 0 0 60px #d4af37;
-}import Image from "next/image";
-import Head from "next/head";
-import Link from "next/link";
-import jazzuHouse from "../public/jazzu-house.png";
-
-export default function Home() {
-  const doors = [
-    { name: "Museforge", link: "/museforge", color: "#d4af37" },
-    { name: "Polish", link: "/polish", color: "#00ff80" },
-    { name: "Money Munchkins", link: "/moneymunchkins", color: "#39ff14" },
-    { name: "NIA", link: "/nia", color: "#ffd700" },
-  ];
-
-  return (
-    <>
-      <Head>
-        <title>The House of Jazzu</title>
-      </Head>
-      <div className="cinematic-bg">
-        <main className="content">
-          <h1 className="title">Welcome to the House of Jazzu</h1>
-          <p className="subtitle">Step through a door into each world</p>
-
-          <div className="image-frame">
-            <Image src={jazzuHouse} alt="House of Jazzu" priority />
-          </div>
-
-          <div className="doors-grid">
-            {doors.map((door, idx) => (
-              <Link key={idx} href={door.link} passHref>
-                <div className="door" style={{ borderColor: door.color }}>
-                  <span className="door-label">{door.name}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </main>
-      </div>
-    </>
-  );
-}import Image from "next/image";
-import Head from "next/head";
-import Link from "next/link";
-import jazzuHouse from "../public/jazzu-house.png";
-
-export default function Home() {
-  const doors = [
-    { name: "Museforge", link: "/museforge", color: "#d4af37" },
-    { name: "Polish", link: "/polish", color: "#00ff80" },
-    { name: "Money Munchkins", link: "/moneymunchkins", color: "#39ff14" },
-    { name: "NIA", link: "/nia", color: "#ffd700" },
-  ];
-
-  return (
-    <>
-      <Head>
-        <title>The House of Jazzu</title>
-      </Head>
-      <div className="cinematic-bg">
-        <main className="content">
-          <h1 className="title">Welcome to the House of Jazzu</h1>
-          <p className="subtitle">Step through a door into each world</p>
-
-          <div className="image-frame">
-            <Image src={jazzuHouse} alt="House of Jazzu" priority />
-          </div>
-
-          <div className="doors-grid">
-            {doors.map((door, idx) => (
-              <Link key={idx} href={door.link} passHref>
-                <div className="door" style={{ borderColor: door.color }}>
-                  <span className="door-label">{door.name}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </main>
-      </div>
-    </>
-  );
-}import Image from "next/image";
-import Head from "next/head";
-import Link from "next/link";
-import jazzuHouse from "../public/jazzu-house.png";
-
-export default function Home() {
-  const doors = [
-    { name: "Museforge", link: "/museforge", color: "#d4af37" },
-    { name: "Polish", link: "/polish", color: "#00ff80" },
-    { name: "Money Munchkins", link: "/moneymunchkins", color: "#39ff14" },
-    { name: "NIA", link: "/nia", color: "#ffd700" },
-  ];
-
-  return (
-    <>
-      <Head>
-        <title>The House of Jazzu</title>
-      </Head>
-      <div className="cinematic-bg">
-        <main className="content">
-          <h1 className="title">Welcome to the House of Jazzu</h1>
-          <p className="subtitle">Step through a door into each world</p>
-
-          <div className="image-frame">
-            <Image src={jazzuHouse} alt="House of Jazzu" priority />
-          </div>
-
-          <div className="doors-grid">
-            {doors.map((door, idx) => (
-              <Link key={idx} href={door.link} passHref>
-                <div className="door" style={{ borderColor: door.color }}>
-                  <span className="door-label">{door.name}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </main>
-      </div>
-    </>
-  );
-}
