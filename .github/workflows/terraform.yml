@@ -1,82 +1,138 @@
-# This workflow installs the latest version of Terraform CLI and configures the Terraform CLI configuration file
-# with an API token for Terraform Cloud (app.terraform.io). On pull request events, this workflow will run
-# `terraform init`, `terraform fmt`, and `terraform plan` (speculative plan via Terraform Cloud). On push events
-# to the "main" branch, `terraform apply` will be executed.
-#
-# Documentation for `hashicorp/setup-terraform` is located here: https://github.com/hashicorp/setup-terraform
-#
-# To use this workflow, you will need to complete the following setup steps.
-#
-# 1. Create a `main.tf` file in the root of this repository with the `remote` backend and one or more resources defined.
-#   Example `main.tf`:
-#     # The configuration for the `remote` backend.
-#     terraform {
-#       backend "remote" {
-#         # The name of your Terraform Cloud organization.
-#         organization = "example-organization"
-#
-#         # The name of the Terraform Cloud workspace to store Terraform state files in.
-#         workspaces {
-#           name = "example-workspace"
-#         }
-#       }
-#     }
-#
-#     # An example resource that does nothing.
-#     resource "null_resource" "example" {
-#       triggers = {
-#         value = "A example resource that does nothing!"
-#       }
-#     }
-#
-#
-# 2. Generate a Terraform Cloud user API token and store it as a GitHub secret (e.g. TF_API_TOKEN) on this repository.
-#   Documentation:
-#     - https://www.terraform.io/docs/cloud/users-teams-organizations/api-tokens.html
-#     - https://help.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets
-#
-# 3. Reference the GitHub secret in step using the `hashicorp/setup-terraform` GitHub Action.
-#   Example:
-#     - name: Setup Terraform
-#       uses: hashicorp/setup-terraform@v1
-#       with:
-#         cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-name: 'Terraform'
+# .github/workflows/deploy-azure.yml
+name: Deploy Opportunity Scraper
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-permissions:
-  contents: read
+    paths: [opportunity-scraper/**]
+  workflow_dispatch:
+
 jobs:
-  terraform:
-    name: 'Terraform'
+  deploy:
     runs-on: ubuntu-latest
-    environment: production
-    # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
-    defaults:
-      run:
-        shell: bash
     steps:
-    # Checkout the repository to the GitHub Actions runner
-    - name: Checkout
-      uses: actions/checkout@v4
-    # Install the latest version of Terraform CLI and configure the Terraform CLI configuration file with a Terraform Cloud user API token
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v1
-      with:
-        cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
-    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
-    - name: Terraform Init
-      run: terraform init
-    # Checks that all Terraform configuration files adhere to a canonical format
-    - name: Terraform Format
-      run: terraform fmt -check
-    # Generates an execution plan for Terraform
-    - name: Terraform Plan
-      run: terraform plan -input=false
-      # On push to "main", build or change infrastructure according to Terraform configuration files
-      # Note: It is recommended to set up a required "strict" status check in your repository for "Terraform Cloud". See the documentation on "strict" required status checks for more information: https://help.github.com/en/github/administering-a-repository/types-of-required-status-checks
-    - name: Terraform Apply
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: terraform apply -auto-approve -input=false
+      - uses: actions/checkout@v4
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: nia-opportunity-scraper
+          package: opportunity-scraper/azure_function
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+from opportunity_scraper.main import scrape_all
+# Every 6 hours:
+o# scraper/utils.py
+import hashlib
+import json
+import sqlite3
+import os
+from datetime import datetime
+from typing import Dict, Any, List
+
+# Persistent cache — works locally, in Docker, and Azure Functions
+DB_PATH = os.getenv("SCRAPER_CACHE_DB", "/tmp/scraper_cache.sqlite")  # /tmp is writable in Functions
+
+def compute_id(url: str, title: str) -> str:
+    """Deterministic 16-char ID for deduplication."""
+    return hashlib.sha256(f"{url}|{title}".encode("utf-8")).hexdigest()[:16]
+
+def normalize_raw(raw: Dict[str, Any], source: str) -> Dict[str, Any]:
+    """Turn messy scraped dict into Nia-standard opportunity object."""
+    return {
+        "id": compute_id(raw.get("url", ""), raw.get("title", "")),
+        "title": str(raw.get("title", "")).strip(),
+        "description": str(raw.get("description", "")),
+        "funding_min": raw.get("funding_min"),
+        "funding_max": raw.get("funding_max"),
+        "deadline": raw.get("deadline"),                    # ISO string expected
+        "category": raw.get("category", []),
+        "url": raw.get("url", "").strip(),
+        "eligibility": raw.get("eligibility", []),
+        "requirements": raw.get("requirements", []),
+        "tags": raw.get("tags", []),
+        "source": source,
+        "scraped_at": datetime.utcnow().isoformat(timespec='seconds') + "Z",
+        "raw": raw  # keep original for debugging / re-processing
+    }
+
+# ─────── SQLite deduplication (survives container restarts) ───────
+def _get_conn():
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    return conn
+
+def ensure_db():
+    conn = _get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS seen (
+            id TEXT PRIMARY KEY,
+            inserted_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_inserted ON seen(inserted_at)")
+    conn.commit()
+    conn.close()
+
+def already_seen(uid: str) -> bool:
+    ensure_db()
+    conn = _get_conn()
+    cur = conn.execute("SELECT 1 FROM seen WHERE id = ?", (uid,))
+    exists = cur.fetchone() is not None
+    conn.close()
+    return exists
+
+def mark_seen(uid: str):
+    ensure_db()
+    conn = _get_conn()
+    conn.execute("INSERT OR IGNORE INTO seen (id) VALUES (?)", (uid,))
+    conn.commit()
+    conn.close()
+
+# ─────── Fit scoring – tuned for The House of Jazzu cashflow ───────
+KEYWORD_WEIGHTS = {
+    # High-value verticals
+    "jazz": 30, "music": 28, "film score": 35, "sync license": 40, "soundtrack": 35,
+    "game audio": 38, "trailer music": 35, "library music": 30,
+    "nft music": 32, "web3": 25, "blockchain": 20,
+    "ai music": 30, "generative audio": 28,
+
+    # Funding signals
+    "grant": 20, "fellowship": 22, "residency": 18, "award": 15,
+    "up to $100,000": 25, "$50,000": 20, "$150,000": 30,
+
+    # Speed-to-cash
+    "rolling": 25, "open call": 20, "no deadline": 30,
+}
+
+def compute_fit_score(norm: Dict[str, Any]) -> int:
+    text = " ".join([
+        norm.get("title",""),
+        norm.get("description",""),
+        " ".join(norm.get("tags",[])),
+        " ".join(norm.get("category",[]))
+    ]).lower()
+
+    score = 0
+    for keyword, weight in KEYWORD_WEIGHTS.items():
+        if keyword in text:
+            score += weight
+
+    # Urgency boost
+    if norm.get("deadline"):
+        try:
+            days_left = (datetime.fromisoformat(norm["deadline"].split("T")[0]) - datetime.utcnow()).days
+            if days_left < 7:
+                score += 40
+            elif days_left < 30:
+                score += 20
+        except:
+            pass  # bad date → ignore
+
+    return max(0, min(100, score))
+
+def send_to_nia(opportunities: List[Dict[str, Any]]):
+    """Webhook → your real Nia instance (Discord, Slack, SMS, or internal queue)"""
+    # Replace with your actual endpoint
+    import requests
+    webhook_url = os.getenv("NIA_WEBHOOK_URL", "https://nia.houseofjazzu.ai/webhook/opportunities")
+    for opp in opportunities:
+        requests.post(webhook_url, json=opp, timeout=10)
+
+ensure_db()  # run on importpportunities = await scrape_all()
