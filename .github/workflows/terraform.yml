@@ -1,138 +1,87 @@
-# .github/workflows/deploy-azure.yml
-name: Deploy Opportunity Scraper
+name: "Terraform Infrastructure Change Management Pipeline with GitHub Actions"
+
 on:
   push:
-    paths: [opportunity-scraper/**]
-  workflow_dispatch:
+    branches:
+      - main
+    paths:
+      - terraform/**
+  pull_request:
+    branches:
+      - main
+    paths:
+      - terraform/**
+
+env:
+  TF_LOG: INFO
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  BUCKET_TF_STATE: ${{ secrets.BUCKET_TF_STATE }}
 
 jobs:
-  deploy:
+  terraform:
+    name: "Terraform Infrastructure Change Management"
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    working-directory: ./terraform
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Deploy to Azure Functions
-        uses: Azure/functions-action@v1
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
-          app-name: nia-opportunity-scraper
-          package: opportunity-scraper/azure_function
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-from opportunity_scraper.main import scrape_all
-# Every 6 hours:
-o# scraper/utils.py
-import hashlib
-import json
-import sqlite3
-import os
-from datetime import datetime
-from typing import Dict, Any, List
+          terraform_version: 1.3.0
 
-# Persistent cache — works locally, in Docker, and Azure Functions
-DB_PATH = os.getenv("SCRAPER_CACHE_DB", "/tmp/scraper_cache.sqlite")  # /tmp is writable in Functions
+      - name: Terraform init
+        id: init
+        run: terraform init -backend-config="bucket=$BUCKET_TF_STATE"
 
-def compute_id(url: str, title: str) -> str:
-    """Deterministic 16-char ID for deduplication."""
-    return hashlib.sha256(f"{url}|{title}".encode("utf-8")).hexdigest()[:16]
+      - name: Terraform format
+        id: fmt
+        run: terraform fmt -check
 
-def normalize_raw(raw: Dict[str, Any], source: str) -> Dict[str, Any]:
-    """Turn messy scraped dict into Nia-standard opportunity object."""
-    return {
-        "id": compute_id(raw.get("url", ""), raw.get("title", "")),
-        "title": str(raw.get("title", "")).strip(),
-        "description": str(raw.get("description", "")),
-        "funding_min": raw.get("funding_min"),
-        "funding_max": raw.get("funding_max"),
-        "deadline": raw.get("deadline"),                    # ISO string expected
-        "category": raw.get("category", []),
-        "url": raw.get("url", "").strip(),
-        "eligibility": raw.get("eligibility", []),
-        "requirements": raw.get("requirements", []),
-        "tags": raw.get("tags", []),
-        "source": source,
-        "scraped_at": datetime.utcnow().isoformat(timespec='seconds') + "Z",
-        "raw": raw  # keep original for debugging / re-processing
-    }
+      - name: Terraform validate
+        id: validate
+        run: terraform validate
 
-# ─────── SQLite deduplication (survives container restarts) ───────
-def _get_conn():
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    return conn
+      - name: Terraform plan
+        id: plan
+        if: github.event_name == 'pull_request'
+        run: terraform plan -no-color -input=false
+        continue-on-error: true
 
-def ensure_db():
-    conn = _get_conn()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS seen (
-            id TEXT PRIMARY KEY,
-            inserted_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_inserted ON seen(inserted_at)")
-    conn.commit()
-    conn.close()
+      - uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
+        env:
+          PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+        with:
+          script: |
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+            #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+            <details><summary>Show Plan</summary>
+            \`\`\`
+            ${process.env.PLAN}
+            \`\`\`
+            </details>
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
 
-def already_seen(uid: str) -> bool:
-    ensure_db()
-    conn = _get_conn()
-    cur = conn.execute("SELECT 1 FROM seen WHERE id = ?", (uid,))
-    exists = cur.fetchone() is not None
-    conn.close()
-    return exists
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
 
-def mark_seen(uid: str):
-    ensure_db()
-    conn = _get_conn()
-    conn.execute("INSERT OR IGNORE INTO seen (id) VALUES (?)", (uid,))
-    conn.commit()
-    conn.close()
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve -input=false
 
-# ─────── Fit scoring – tuned for The House of Jazzu cashflow ───────
-KEYWORD_WEIGHTS = {
-    # High-value verticals
-    "jazz": 30, "music": 28, "film score": 35, "sync license": 40, "soundtrack": 35,
-    "game audio": 38, "trailer music": 35, "library music": 30,
-    "nft music": 32, "web3": 25, "blockchain": 20,
-    "ai music": 30, "generative audio": 28,
-
-    # Funding signals
-    "grant": 20, "fellowship": 22, "residency": 18, "award": 15,
-    "up to $100,000": 25, "$50,000": 20, "$150,000": 30,
-
-    # Speed-to-cash
-    "rolling": 25, "open call": 20, "no deadline": 30,
-}
-
-def compute_fit_score(norm: Dict[str, Any]) -> int:
-    text = " ".join([
-        norm.get("title",""),
-        norm.get("description",""),
-        " ".join(norm.get("tags",[])),
-        " ".join(norm.get("category",[]))
-    ]).lower()
-
-    score = 0
-    for keyword, weight in KEYWORD_WEIGHTS.items():
-        if keyword in text:
-            score += weight
-
-    # Urgency boost
-    if norm.get("deadline"):
-        try:
-            days_left = (datetime.fromisoformat(norm["deadline"].split("T")[0]) - datetime.utcnow()).days
-            if days_left < 7:
-                score += 40
-            elif days_left < 30:
-                score += 20
-        except:
-            pass  # bad date → ignore
-
-    return max(0, min(100, score))
-
-def send_to_nia(opportunities: List[Dict[str, Any]]):
-    """Webhook → your real Nia instance (Discord, Slack, SMS, or internal queue)"""
-    # Replace with your actual endpoint
-    import requests
-    webhook_url = os.getenv("NIA_WEBHOOK_URL", "https://nia.houseofjazzu.ai/webhook/opportunities")
-    for opp in opportunities:
-        requests.post(webhook_url, json=opp, timeout=10)
-
-ensure_db()  # run on importpportunities = await scrape_all()
