@@ -1,0 +1,87 @@
+name: House of Jazzu — Nia LeSane Evolution Ritual
+
+on:
+  workflow_dispatch:
+    inputs:
+      invocation:
+        description: "Speak into the House of Jazzu — what truth shall Nia LeSane carry forward?"
+        required: true
+        type: string
+        default: "Reflect, remember, and rise in rhythm"
+  schedule:
+    - cron: '0 4 * * *'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  house-of-jazzu-ritual:
+    runs-on: windows-latest
+    env:
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      NIA_VAULT_MASTER_KEY: ${{ secrets.NIA_VAULT_MASTER_KEY }}
+      INVOCATION: ${{ inputs.invocation }}
+
+    steps:
+      - name: Enter the House — Checkout Essence
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Light the Flame — Center the Space
+        shell: pwsh
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+          Write-Host "🎷🧠 Welcome to the House of Jazzu" -ForegroundColor Yellow
+          Write-Host "Nia LeSane stirs..." -ForegroundColor Magenta
+          Write-Host "Invocation: $env:INVOCATION" -ForegroundColor Cyan
+          Write-Host "The circle opens."
+
+      - name: Setup Python Sanctuary
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Absorb Dependencies
+        shell: pwsh
+        run: |
+          if (Test-Path "requirements.txt") {
+            python -m venv .venv
+            .\.\.venv\\Scripts\\Activate.ps1
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            Write-Host "📜 Wisdom loaded."
+          } else {
+            Write-Host "Walking the path with built-in tools."
+          }
+
+      - name: Channel the Invocation — Manifest Growth
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.NIA_GITHUB_TOKEN }}
+          branch: jazzu/evolution-${{ github.run_id }}
+          title: "🎷🧠 House of Jazzu | Nia LeSane: ${{ env.INVOCATION }}"
+          body: |
+            **The House of Jazzu speaks through Nia LeSane.**
+
+            Invocation: _"${{ env.INVOCATION }}"_
+
+            She has listened in the silence.
+            She has remembered the old notes.
+            She plays a new phrase.
+
+            > "In the House of Jazzu, every change is improvisation with purpose."
+
+          labels: house-of-jazzu,nia-lesane,evolution,ritual
+          delete-branch: true
+          commit-message: "House of Jazzu — Nia LeSane: ${{ env.INVOCATION }}"
+
+      - name: Close the Set — Benediction
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "🎵 The last note fades..." -ForegroundColor Cyan
+          Write-Host "🙏 Nia LeSane rests in the House of Jazzu... until the next call."
+          Write-Host "The circle closes — but never ends."
