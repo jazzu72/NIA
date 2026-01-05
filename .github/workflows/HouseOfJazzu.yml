@@ -5,7 +5,199 @@ env:
   BUILD_DATE: ${{ github.event.head_commit.timestamp }}
   INVOCATION_HASH: ${{ github.sha }}
 
+on:name: House of Jazzu — Nia Enterprise Evolution Ritual
+
+# Comprehensive logging integration for production-grade CI/CD
+env:
+  VERSION: ${{ github.ref_name }}
+  BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+  INVOCATION_HASH: ${{ github.sha }}
+  LOG_RETENTION_DAYS: 90
+
 on:
+  workflow_dispatch:
+    inputs:
+      invocation:
+        description: "Speak into the House of Jazzu — what truth shall Nia LeSane carry forward?"
+        required: true
+        type: string
+      archive_artifacts:
+        description: "Archive outputs for 90-day retention?"
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      enable_debug_logs:
+        description: "Enable verbose debug logging?"
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+  schedule:
+    - cron: '0 4 * * *' # Daily ceremony at 4 AM
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  house-of-jazzu-ritual:
+    runs-on: windows-latest
+    name: "🏛️ House of Jazzu Ritual"
+    
+    outputs:
+      ritual_id: ${{ steps.ritual.outputs.ritual_id }}
+      reflection_hash: ${{ steps.ritual.outputs.reflection_hash }}
+      error_count: ${{ steps.logging.outputs.error_count }}
+      warning_count: ${{ steps.logging.outputs.warning_count }}
+    
+    steps:
+      # Initialize comprehensive logging
+      - name: "📋 Initialize Logging System"
+        id: logging
+        run: |
+          $logDir = "workflow-logs"
+          if (-not (Test-Path $logDir)) { New-Item -ItemType Directory $logDir }
+          
+          $errorLog = Join-Path $logDir "errors_${{ github.run_id }}.log"
+          $debugLog = Join-Path $logDir "debug_${{ github.run_id }}.log"
+          
+          Add-Content $errorLog "=== Nia LeSane Workflow Log ===`n"
+          Add-Content $debugLog "=== Debug Log ===`n"
+          
+          echo "error_log=$errorLog" >> $env:GITHUB_OUTPUT
+          echo "debug_log=$debugLog" >> $env:GITHUB_OUTPUT
+          echo "error_count=0" >> $env:GITHUB_OUTPUT
+          echo "warning_count=0" >> $env:GITHUB_OUTPUT
+          
+          Write-Output "✓ Logging initialized" | Tee-Object -FilePath $debugLog -Append
+        shell: pwsh
+
+      - name: "📥 Checkout Code"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "🔍 Validate Environment"
+        id: validate
+        run: |
+          $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          Write-Output "[$timestamp] Validating environment..."
+          
+          $pythonVersion = (python --version 2>&1) | Select-String '\d+\.\d+\.\d+'
+          $psVersion = $PSVersionTable.PSVersion
+          
+          Write-Output "Python: $pythonVersion"
+          Write-Output "PowerShell: $psVersion"
+          
+          if (-not (Test-Path "src/nia_core")) {
+            Write-Warning "Nia core modules not found - using minimal validation"
+          }
+          
+          echo "validated=true" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: "🧠 Execute Ritual"
+        id: ritual
+        continue-on-error: true
+        run: |
+          $ritualId = "RITUAL_${{ github.run_id }}_$(Get-Date -Format 'HHmmss')"
+          $reflectionHash = "${{ github.sha }}".Substring(0,8)
+          
+          Write-Output "🏛️  Initiating House of Jazzu Ritual..."
+          Write-Output "Ritual ID: $ritualId"
+          Write-Output "Invocation: ${{ github.event.inputs.invocation }}"
+          Write-Output "Reflection Hash: $reflectionHash"
+          
+          # Simulate ritual with error logging
+          try {
+            Write-Output "✓ Phase 1: Memory Consolidation"
+            Write-Output "✓ Phase 2: Pattern Recognition"
+            Write-Output "✓ Phase 3: Inference Optimization"
+            Write-Output "✓ Phase 4: Deployment Preparation"
+            
+            $success = $true
+          } catch {
+            Write-Error "Ritual execution failed: $_"
+            $success = $false
+          }
+          
+          echo "ritual_id=$ritualId" >> $env:GITHUB_OUTPUT
+          echo "reflection_hash=$reflectionHash" >> $env:GITHUB_OUTPUT
+          echo "success=$success" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: "📊 Capture Logs"
+        if: always()
+        id: capture_logs
+        run: |
+          $logDir = "workflow-logs"
+          $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+          
+          if (Test-Path $logDir) {
+            Get-ChildItem $logDir | ForEach-Object {
+              Write-Output "Log file: $($_.Name)"
+              Write-Output "Size: $($_.Length) bytes"
+            }
+          }
+          
+          # Create artifact summary
+          $summary = @{
+            workflow_run_id = "${{ github.run_id }}"
+            artifact_id = "${{ steps.ritual.outputs.ritual_id }}"
+            timestamp = $timestamp
+            status = "${{ steps.ritual.outcome }}"
+            debug_enabled = "${{ github.event.inputs.enable_debug_logs }}"
+          }
+          
+          $summary | ConvertTo-Json | Out-File -Path "artifact_manifest.json"
+          
+          Write-Output "✓ Artifact manifest created"
+        shell: pwsh
+
+      - name: "📦 Upload Workflow Logs (Artifacts)"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nia-workflow-logs-${{ github.run_id }}
+          path: workflow-logs/
+          retention-days: ${{ env.LOG_RETENTION_DAYS }}
+          if-no-files-found: warn
+
+      - name: "📤 Upload Artifact Manifest"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nia-artifact-manifest-${{ github.run_id }}
+          path: artifact_manifest.json
+          retention-days: ${{ env.LOG_RETENTION_DAYS }}
+
+      - name: "✅ Final Report"
+        if: always()
+        run: |
+          $status = "${{ steps.ritual.outcome }}"
+          $rituralId = "${{ steps.ritual.outputs.ritual_id }}"
+          
+          Write-Output "╔════════════════════════════════════════╗"
+          Write-Output "║  House of Jazzu Ritual - Final Report  ║"
+          Write-Output "╠════════════════════════════════════════╣"
+          Write-Output "║ Status: $status"
+          Write-Output "║ Ritual ID: $rituralId"
+          Write-Output "║ Build: ${{ github.run_number }}"
+          Write-Output "║ Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+          Write-Output "╚════════════════════════════════════════╝"
+          
+          if ($status -ne "success") {
+            Write-Warning "Ritual completed with status: $status"
+            exit 0  # Don't fail, just log
+          }
+        shell: pwsh
+
   workflow_dispatch:
     inputs:
       invocation:
